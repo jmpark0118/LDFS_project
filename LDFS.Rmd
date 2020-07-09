@@ -1,0 +1,628 @@
+---
+title: "LDFS_200709"
+author: "JeongMin Park"
+date: '2020-7-9 '
+output: 
+  html_document:
+    df_print: paged
+---
+
+
+## 데이터 불러오기
+```{r, message=FALSE, warning=FALSE}
+setwd('C:/Users/jeong/Desktop/ldfs')
+library(readr)
+library(tidyverse)
+library(lubridate)
+data <- read_csv('매출 데이터_매출변환후.csv')
+weekday <- read_csv('날짜 데이터.csv')
+weekday$기준일자 <- as.Date(as.character(weekday$기준일자), '%Y%m%d')
+
+head(data)
+summary(data)
+dim(data)
+```
+
+
+## 데이터 전처리
+```{r, message=FALSE, warning=FALSE}
+data$기준일자 <- as.Date(as.character(data$기준일자), '%Y%m%d')
+data <- data %>% separate(기준일시, into=c('date', 'P', 'time'), sep=' ') %>% 
+  mutate(hour=ifelse(P=='오후', hour(strptime(time, '%I:%M:%S'))+12, 
+                     hour(strptime(time, '%I:%M:%S'))))
+data$국가코드 <- as.factor(data$국가코드)
+data$VIP등급 <- as.factor(data$VIP등급)
+data$성별 <- as.factor(data$성별)
+data$연령대 <- as.factor(data$연령대)
+data$카테고리코드 <- as.factor(data$카테고리코드)
+data$브랜드코드 <- as.factor(data$브랜드코드)
+data$럭셔리브랜드여부 <- as.factor(data$럭셔리브랜드여부)
+data$아이템코드 <- as.factor(data$아이템코드)
+data$클래스코드 <- as.factor(data$클래스코드)
+data$외산토산구분 <- as.factor(data$외산토산구분)
+data$매장위치 <- as.factor(data$매장위치)
+data$정상여부 <- as.factor(data$정상여부)
+data$매출속성 <- as.factor(data$매출속성)
+
+weekday$요일명 <- as.factor(weekday$요일명)
+weekday$주중주말1 <- as.factor(weekday$주중주말1)
+```
+
+
+## 데이터 합치기
+```{r, message=FALSE, warning=FALSE}
+data <- data %>% left_join(weekday)
+
+summary(data)
+head(data)
+```
+
+
+## EDA
+```{r, message=FALSE, warning=FALSE}
+library(ggplot2)
+```
+
+
+### Numeric Variables
+
+#### 기준일자
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+ggplot(data, aes(`기준일자`)) +
+  geom_bar() + theme_bw()
+```
+
+- 12월 중순에 구매건수가 가장 많음
+
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+week_effect <- data %>% group_by(요일코드, 요일명) %>% count()
+week_effect
+ggplot(week_effect, aes(요일코드, n)) +
+  geom_bar(stat = 'identity') + theme_bw() +
+  scale_x_continuous(breaks = seq(1,7),
+                     labels = week_effect$요일명)
+```
+
+- 일요일에 구매건수가 가장 많음 (뚜렷한 주말 효과는 없음!)
+
+
+#### 연령
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+ggplot(data, aes(`연령`)) + 
+  geom_bar() + theme_bw()
+# 연령에 이상값 존재함
+
+summary(data$연령)
+data %>% filter(연령==999) %>% group_by(연령, 연령대) %>% count()
+# 연령이 미입력인 경우 연령이 999로 입력됨!
+
+temp <- data %>% filter(`연령`!=999)
+colors <- c("Median" = "red", "Mean" = "blue")
+ggplot(temp, aes(`연령`)) + 
+  geom_bar() + theme_bw() + 
+  geom_vline(aes(xintercept = median(temp$연령), color='Median'), lwd=1.5) + 
+  geom_vline(aes(xintercept = mean(temp$연령), color='Mean'), lwd=1.5) +
+  labs(color = "") +
+  scale_color_manual(values = colors)
+```
+
+- 연령의 분포는 오른쪽으로 꼬리가 긴 right-skewed 형태임을 확인할 수 있다.
+
+
+#### 매출액
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+ggplot(data, aes(`매출액`)) + 
+  geom_density() + theme_bw()
+summary(data$매출액)
+# 매출액이 0근처에 밀집되어 있음
+
+ggplot(data, aes(`매출액`)) + 
+  geom_histogram(bins = 40) + theme_bw() + 
+  scale_x_log10() +
+  labs(title = '매출액 로그 변환')
+```
+
+#### 판매단가
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+ggplot(data, aes(`판매단가`)) + 
+  geom_density() + theme_bw()
+summary(data$판매단가)
+# 판매단가가 0근처에 밀집되어 있음
+ggplot(data, aes(`판매단가`)) + 
+  geom_histogram(bins = 40) + theme_bw() + 
+  scale_x_log10() +
+  labs(title = '판매단가 로그 변환')
+```
+
+
+### Categorical Variables
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+my_plot <- function(my_data=data, my_var, my_title=''){
+  ggplot(my_data, aes(my_var)) +
+    geom_bar(aes(fill=my_var)) + 
+    theme_bw() +
+    labs(title = my_title, x = NULL, fill = my_title) +
+    theme(axis.text.x = element_text(size = 10))
+}
+```
+
+#### 성별
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+my_plot(data, data$성별, '성별에 따른 분포') +
+  scale_x_discrete(breaks = 1:2, labels = c('남자', '여자')) +
+  theme(legend.position = 'none')
+```
+
+#### 연령대
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+my_plot(data, data$연령대, '연령대') +
+  scale_x_discrete(breaks = c(1:6, 'z'), 
+                   labels = c('20대미만', '20대', '30대', '40대', 
+                              '50대', '60대이상', '미입력')) +
+  theme(legend.position = 'none')
+
+#### 연령대 (미입력 제외)
+data1 <- data %>% filter(`연령`!=999)
+my_plot(data1 , data1$연령대, '연령대 (미입력 값 제외)') +
+  scale_x_discrete(breaks = 1:6, 
+                   labels = c('20대미만', '20대', '30대', '40대', 
+                              '50대', '60대이상')) +
+  theme(legend.position = 'none')
+```
+
+- 미입력을 제외한 주연령층은 20-30대
+
+
+#### 국가코드
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+my_plot(data, data$국가코드, '국가코드') + 
+  guides(fill=guide_legend(ncol=2))
+
+#### 국가코드에서 중국 제외
+data1 <- data %>% filter(`국가코드`!='CHN')
+my_plot(data1, data1$국가코드, '국가코드') + 
+  guides(fill=guide_legend(ncol=2))
+```
+
+- 중국이 압도적으로 많음!
+
+
+#### VIP등급
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+data$VIP등급 <- factor(data$VIP등급,
+                   levels = c('V', 'L', 'P', 'G', 'S', 'z'))
+my_plot(data, data$VIP등급, 'VIP등급') +
+  scale_x_discrete(labels = c('VVIP', 'LVIP', 'PREMIUM', 'GOLD', 
+                              'SILVER', '미회원')) +
+  theme(legend.position = 'none')
+```
+
+
+#### 카테고리코드/카테고리명 (9개 구분)
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+data1 <- data %>% group_by(카테고리코드, 카테고리명) %>% count()
+data1
+my_plot(data, data$카테고리코드, '카테고리코드') +
+  scale_x_discrete(labels = data1$카테고리명) +
+  theme(legend.position = 'none',
+        axis.text.x = element_text(angle = 15, hjust = 1, vjust = 1))
+```
+
+- 화장품과 향수가 압도적으로 많음
+
+
+#### 아이템코드/아이템명 (25개 구분)
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+data1 <- data %>% group_by(아이템코드, 아이템명) %>% count()
+data1
+my_plot(data, data$아이템코드, '아이템코드') +
+  scale_x_discrete(labels = data1$아이템명) +
+  theme(legend.position = 'none', 
+        axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1))
+
+data1 <- data %>% filter(`아이템코드`!=6) %>% 
+  group_by(아이템코드, 아이템명) %>% count()
+data1
+ggplot(data1, aes(reorder(아이템명, -n), n, fill = reorder(아이템명, -n))) + 
+  geom_bar(stat = 'identity') +
+  theme_bw() +
+  labs(x = NULL, y = 'count', title = '아이템코드(화장품제외)') +
+  theme(legend.position = 'none', 
+        axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1))
+```
+
+- 6번(화장품) 아이템코드가 압도적으로 높음!
+
+
+#### 클래스코드/클래스명 (55개 구분)
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+data1 <- data %>% group_by(클래스코드, 클래스명) %>% count()
+data1
+```
+
+#### 클래스코드가 너무 많으므로 가장 판매량이 높은 15개 항목만 추출
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+data1 <- data %>% group_by(클래스코드, 클래스명) %>% count() %>% 
+  arrange(desc(n)) %>% ungroup() %>% top_n(10)
+
+ggplot(data1, aes(reorder(클래스명, -n), n, fill = reorder(클래스명, -n))) + 
+  geom_bar(stat = 'identity') +
+  theme_bw() +
+  labs(x = NULL, y = 'count', title = '구매건수가 많은 15개의 클래스명') +
+  theme(legend.position = 'none', 
+        axis.text.x = element_text(angle = 15, hjust = 0.5, vjust = 1))
+```
+
+
+#### 외산토산구분
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+my_plot(data, data$외산토산구분, '외산토산구분')
+```
+
+
+#### 매장위치
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+data$매장위치 <- factor(data$매장위치,
+                        levels = c( '스타에비뉴 코너', '9층', '10층', '11층',
+                                    '12층','LVIP라운지샵'))
+my_plot(data, data$매장위치, '매장위치')
+```
+
+- 12층에서 대부분의 매출 발생
+
+
+#### 정상여부
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+data %>% group_by(정상여부) %>% count()
+my_plot(data, data$정상여부, '정상여부')
+```
+
+- 대부분 정상매출
+
+
+#### 매출속성
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+my_plot(data, data$매출속성, '매출속성')
+```
+
+- 상업성고객(MG/SG)가 대부분
+
+
+
+
+### 각 층별 쇼핑 패턴의 차이
+```{r, message=FALSE, warning=FALSE}
+my_plot2 <- function(my_data=data, my_var, my_title=''){
+  ggplot(my_data, aes(my_var, group=매장위치)) +
+    geom_bar(aes(y=..prop.., fill=factor(..x..))) + 
+    theme_bw() +
+    facet_grid(~매장위치) +
+    labs(title = my_title, x = NULL) +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank()) + 
+    facet_wrap(~매장위치, nrow = 2)
+}
+```
+
+
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+data1 <- data %>% group_by(카테고리코드, 카테고리명) %>% count()
+my_plot2(data, data$카테고리코드, '층별 카테고리코드의 분포') + 
+  scale_fill_discrete(name = '카테고리명',
+                      labels = data1$카테고리명)
+
+my_plot2(data, data$성별, '층별 성별의 분포') + 
+  scale_fill_discrete(name = '성별',
+                      labels = c('남자', '여자'))
+
+my_plot2(data, data$연령대, '층별 연령대의 분포') + 
+  scale_fill_discrete(name = '연령대',
+                      labels = c('20대미만', '20대', '30대', '40대', 
+                                 '50대', '60대이상', '미입력'))
+
+my_plot2(data, data$매출속성, '층별 매출속성의 분포') + 
+  scale_fill_discrete(name = '매출속성',
+                      labels = levels(data$매출속성))
+
+my_plot2(data, data$VIP등급, '층별 VIP등급의 분포') + 
+  scale_fill_discrete(name = 'VIP등급',
+                      labels = c('VVIP', 'LVIP', 'PREMIUM', 'GOLD', 
+                                 'SILVER', '미회원'))
+
+my_plot2(data, data$국가코드, '층별 국가코드의 분포') +
+  guides(fill=guide_legend(nrow = 2)) + 
+  scale_fill_discrete(name = '국가코드',
+                      labels = levels(data$국가코드)) +
+  theme(legend.position = 'bottom')
+
+data1 <- data %>% filter(`국가코드`!='CHN')
+my_plot2(data1, data1$국가코드, '층별 국가코드의 분포 (CHN 제외)') +
+  guides(fill=guide_legend(nrow = 2)) + 
+  scale_fill_discrete(name = '국가코드',
+                      breaks = 1:16,
+                      labels = levels(data1$국가코드)[2:17]) +
+  theme(legend.position = 'bottom')
+
+my_plot2(data, data$럭셔리브랜드여부, '층별 럭셔리브랜드여부의 분포') + 
+  scale_fill_discrete(name = '럭셔리브랜드여부',
+                      labels = c('No', 'Yes'))
+
+my_plot2(data, data$외산토산구분, '층별 외산토산구분의 분포') + 
+  scale_fill_discrete(name = '외산토산구분',
+                      labels = c('외산', '토산'))
+
+ggplot(data, aes(매출액, group=매장위치)) +
+  geom_density() + 
+  scale_x_log10() +
+  theme_bw() +
+  facet_grid(~매장위치) +
+  labs(title = '층별 매출액 분포', x = NULL) +
+  theme(axis.text.x = element_text(size = 10)) +
+  facet_wrap(~매장위치, nrow = 2)
+
+ggplot(data, aes(판매단가, group=매장위치)) +
+  geom_density() + 
+  scale_x_log10() +
+  theme_bw() +
+  facet_grid(~매장위치) +
+  labs(title = '층별 판매단가 분포', x = NULL) +
+  theme(axis.text.x = element_text(size = 10)) +
+  facet_wrap(~매장위치, nrow = 2)
+```
+
+
+
+
+### 카테고리별 매출액과 판매단가의 차이
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+data1 <- data %>% group_by(카테고리명) %>% 
+  summarise(`총 매출액`=round(sum(매출액, na.rm=T),2),
+            `평균 매출액`=round(mean(매출액, na.rm=T),5),
+            `총 판매단가`=round(sum(판매단가, na.rm=T),2),
+            `평균 판매단가`=round(mean(판매단가, na.rm=T),5))
+as.data.frame(data1)
+data2 <- data1 %>% select(-3, -5) %>% 
+  gather(key = 'mygroup', value = 'myvalue', `총 매출액`, `총 판매단가`, -`카테고리명`)
+data2
+
+ggplot(data2, aes(카테고리명)) +
+  geom_bar(aes(y = myvalue, group = mygroup, fill = mygroup), 
+           stat = 'identity', position = position_dodge(width = 0.95)) +
+  theme_bw() +
+  labs(y = NULL, title = '카테고리별 총 매출액과 총 판매단가 비교') +
+  scale_fill_discrete('구분') +
+  theme(axis.text.x = element_text(angle = 15, hjust = 0.5, vjust = 1))
+```
+
+- `COS and PFM` 항목이 매출액은 높지만 판매단가는 상대적으로 낮음을 알 수 있음
+- 수익과 직결되는 판매단가에 주목!!
+
+
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+ggplot(data1, aes(카테고리명, `평균 판매단가`)) +
+  geom_bar(stat = 'identity', aes(fill=카테고리명)) +
+  theme_bw() +
+  labs(y = NULL, title = '카테고리별 평균 판매단가 비교') +
+  theme(legend.position = 'none')
+```
+
+- 평균 판매단가를 살펴보면 `JEW and WATCH`가 압도적으로 높음
+- 구매건당 발생하는 수익이 높음!
+
+
+### 매장위치별 카테고리의 구매 건수
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+data1 <- data %>% group_by(매장위치, 카테고리명) %>% count() %>% 
+  ungroup() %>% group_by(매장위치) %>% mutate(total=sum(n)) %>% mutate(p=n/total)
+data1
+ggplot(data1, aes(매장위치, y=p, fill=카테고리명)) +
+  geom_bar(stat = 'identity',
+           position = position_stack(reverse = TRUE)) +
+  theme_bw() +
+  coord_flip() +
+  labs(y=NULL, title = '매장위치별 카테고리의 구매 건수 분포 (비율)')
+```
+
+
+### 매장위치별 카테고리의 매출액
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+data1 <- data %>% group_by(매장위치, 카테고리명) %>% 
+  summarise(sales=sum(매출액, na.rm=T)) %>% 
+  ungroup() %>% group_by(매장위치) %>% mutate(total=sum(sales)) %>% 
+  mutate(p=sales/total)
+data1
+ggplot(data1, aes(매장위치, y=p, fill=카테고리명)) +
+  geom_bar(stat = 'identity',
+           position = position_stack(reverse = TRUE)) +
+  theme_bw() +
+  coord_flip() +
+  labs(y=NULL, title = '매장위치별 카테고리의 매출액 분포 (비율)')
+```
+
+
+### 매장위치별 카테고리의 판매단가
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+data1 <- data %>% group_by(매장위치, 카테고리명) %>% 
+  summarise(sales=sum(판매단가, na.rm=T)) %>% 
+  ungroup() %>% group_by(매장위치) %>% mutate(total=sum(sales)) %>% 
+  mutate(p=sales/total)
+data1
+ggplot(data1, aes(매장위치, y=p, fill=카테고리명)) +
+  geom_bar(stat = 'identity',
+           position = position_stack(reverse = TRUE)) +
+  theme_bw() +
+  coord_flip() +
+  labs(y=NULL, title = '매장위치별 카테고리의 판매단가 분포 (비율)')
+```
+
+
+
+### 주말과 주중 판매되는 카테고리의 차이
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+data1 <- data %>% group_by(주중주말1, 카테고리명) %>% count() %>% 
+  mutate(일평균=ifelse(주중주말1=='주중', n/5, n/2))
+data1$주중주말1 <- factor(data1$주중주말1, levels = c('주중', '주말'))
+data1
+ggplot(data1, aes(카테고리명, 일평균, fill = 주중주말1)) +
+  geom_bar(stat = 'identity', position = position_dodge(width = 0.95)) +
+  theme_bw() +
+  labs(y='구매건수', title='카테고리별 주중/주말 구매건수의 분포') +
+  scale_fill_discrete('구분')
+```
+
+- 주말 일평균 구매건수가 좀 더 많기는 하지만 큰 차이는 없음
+
+
+### 요일별 방문객의 차이 (외국인/내국인)
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+data1 <- data %>% mutate(country=ifelse(국가코드=='KOR', '내국인', '외국인'))
+data2 <- data1 %>% group_by(요일명, country) %>% count()
+data2$요일명 <- factor(data2$요일명, 
+                    levels = c('월요일', '화요일', '수요일', '목요일',
+                               '금요일', '토요일', '일요일'))
+data2
+ggplot(data2, aes(요일명, n, fill = country)) +
+  geom_bar(stat = 'identity', position = position_dodge(width = 0.95)) +
+  theme_bw() +
+  scale_fill_discrete('구분') +
+  labs(x=NULL, y=NULL, title = '요일별 내국인과 외국인의 분포')
+```
+
+- 외국인의 구매가 월등히 높음!
+
+
+### 주말과 주중 방문객의 차이 (외국인/내국인)
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+data1 <- data1 %>% group_by(주중주말1, country, 카테고리명) %>% count() %>% 
+  mutate(일평균=ifelse(주중주말1=='주중', n/5, n/2))
+data1$주중주말1 <- factor(data1$주중주말1, levels = c('주중', '주말'))
+data1
+ggplot(data1, aes(카테고리명, 일평균, fill = 주중주말1)) +
+  geom_bar(stat = 'identity', position = position_dodge(width = 0.95)) +
+  theme_bw() +
+  labs(y='구매건수', title='카테고리별 주중/주말 구매건수의 분포') +
+  scale_fill_discrete('구분')
+```
+
+
+### 구매건수가 많은 고객의 특징
+#### 구매건수가 많은 고객 100명 추출
+```{r, message=FALSE, warning=FALSE, fig.align='center'}
+data1 <- data %>% group_by(회원ID) %>% count() %>% ungroup() %>% top_n(100)
+data2 <- data %>% filter(회원ID %in% data1$회원ID)
+data3 <- unique(data2 %>% group_by(회원ID) %>% select(6:11))
+
+#### 성별
+my_plot(data3, data3$성별, '구매건수 TOP100_성별에 따른 분포') +
+  scale_x_discrete(breaks = 1:2, labels = c('남자', '여자')) +
+  theme(legend.position = 'none')
+
+#### 연령대
+my_plot(data3, data3$연령대, '구매건수 TOP100_연령대') +
+  scale_x_discrete(breaks = c(1:6, 'z'), 
+                   labels = c('20대미만', '20대', '30대', '40대', 
+                              '50대', '60대이상', '미입력')) +
+  theme(legend.position = 'none')
+
+#### 국가코드
+my_plot(data3, data3$국가코드, '구매건수 TOP100_국가코드') +
+  scale_fill_discrete('국가코드')
+
+#### VIP등급
+data3$VIP등급 <- factor(data3$VIP등급,
+                     levels = c('V', 'L', 'P', 'G', 'S', 'z'))
+my_plot(data3, data3$VIP등급, '구매건수 TOP100_VIP등급') +
+  scale_x_discrete(labels = c('VVIP', 'LVIP', 'PREMIUM', 'GOLD', 
+                              'SILVER', '미회원')) +
+  theme(legend.position = 'none')
+
+#### 카테고리코드/카테고리명 (9개 구분)
+data1 <- data2 %>% group_by(카테고리코드, 카테고리명) %>% count()
+data1
+my_plot(data, data$카테고리코드, '구매건수 TOP100_카테고리코드') +
+  scale_x_discrete(labels = data1$카테고리명) +
+  theme(legend.position = 'none',
+        axis.text.x = element_text(angle = 15, hjust = 1, vjust = 1))
+# 화장품과 향수가 압도적으로 많음
+
+#### 외산토산구분
+my_plot(data2, data2$외산토산구분, '구매건수 TOP100_외산토산구분') +
+  scale_fill_discrete('구분')
+
+####  매장위치
+my_plot(data2, data2$매장위치, '구매건수 TOP100_매장위치') +
+  scale_fill_discrete('매장위치')
+```
+
+
+### 정상여부
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+data1 <- data %>% filter(정상여부==0) %>% group_by(카테고리명) %>% count()
+data2 <- data %>% filter(정상여부==1) %>% group_by(카테고리명) %>% count()
+data3 <- left_join(data1, data2, by = "카테고리명") %>% 
+  mutate(p=n.x/n.y)
+data3
+ggplot(data3, aes(카테고리명, p, fill=카테고리명)) +
+  geom_bar(stat = 'identity') +
+  theme_bw() +
+  labs(x=NULL, y=NULL, title = '카테고리별 거래 취소 비율') +
+  theme(axis.text.x = element_blank())
+```
+
+
+### 시간대별 구매 패턴
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+ggplot(data, aes(hour, group=hour)) +
+  geom_bar(stat = 'count') +
+  theme_bw() +
+  labs(x='시간', y=NULL, title='시간대별 구매 건수')
+```
+
+
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+data1 <- data %>% group_by(매장위치, hour) %>% count()
+data1
+ggplot(data1, aes(hour, n, group=매장위치)) +
+  geom_bar(stat = 'identity') + 
+  theme_bw() +
+  scale_x_continuous(breaks = 9:22, limits = c(9,22)) +
+  labs(title = '층별 구매시간별 구매건수의 분포', x = NULL) +
+  theme(axis.text.x = element_text(size = 10)) +
+  facet_wrap(~매장위치, nrow = 2)
+```
+
+- 구매건수는 모든 시간대에 12층에서 상당히 높음
+
+
+### 시간대별 혼잡도 파악
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+data2 <- data %>% group_by(매장위치, hour) %>% 
+  summarise(n_dist=n_distinct(회원ID))
+data2
+ggplot(data2, aes(hour, n_dist, group=매장위치)) +
+  geom_bar(stat = 'identity') + 
+  theme_bw() +
+  scale_x_continuous(breaks = 9:22, limits = c(9,22)) +
+  labs(title = '층별 구매시간별 구매 회원의 분포', x = NULL) +
+  theme(axis.text.x = element_text(size = 10)) +
+  facet_wrap(~매장위치, nrow = 2)
+```
+
+
+### 회원ID당 구매건수
+```{r, message=FALSE, warning=FALSE, fig.align='center', fig.width=9}
+data3 <- left_join(data1, data2) %>%
+  mutate(`평균 구매건수`=n/n_dist)
+data3
+ggplot(data3, aes(hour, `평균 구매건수`, group=매장위치)) +
+  geom_bar(stat = 'identity') + 
+  theme_bw() +
+  scale_x_continuous(breaks = 9:22, limits = c(9,22)) +
+  labs(title = '층별 구매시간별 평균 구매건수의 분포', x = NULL) +
+  theme(axis.text.x = element_text(size = 10)) +
+  facet_wrap(~매장위치, nrow = 2)
+
+
+```
+
+
